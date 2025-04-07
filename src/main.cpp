@@ -5,6 +5,52 @@
 #include <RtcDS1302.h>
 #include <ThreeWire.h>
 
+#include <EEPROM.h>
+#define EEPROM_SIZE 32 // حجم الذاكرة المطلوبة (يمكن تعديله حسب الحاجة)
+//----------------- lib---------------
+
+// ----------------------- Configuration -----------------------
+bool autoMode = true;
+int morningStartHour = 7;
+int nightReturnHour = 18;
+int stepInterval = 30;
+int motorStepTime = 1000; // متغير يمكن تحديثه أثناء التشغيل
+
+// ----------------------- EEPROM Functions -----------------------
+void saveSettingsToEEPROM()
+{
+  EEPROM.writeBool(0, autoMode);
+  EEPROM.write(1, morningStartHour);
+  EEPROM.write(2, nightReturnHour);
+  EEPROM.write(3, stepInterval);
+  EEPROM.write(4, motorStepTime & 0xFF);        // حفظ الجزء الأدنى
+  EEPROM.write(5, (motorStepTime >> 8) & 0xFF); // حفظ الجزء الأعلى
+  EEPROM.commit();
+  Serial.println("✅ Settings saved to EEPROM");
+}
+
+void loadSettingsFromEEPROM()
+{
+  autoMode = EEPROM.readBool(0);
+  morningStartHour = EEPROM.read(1);
+  nightReturnHour = EEPROM.read(2);
+  stepInterval = EEPROM.read(3);
+  motorStepTime = EEPROM.read(4) | (EEPROM.read(5) << 8);
+  Serial.println("✅ Settings loaded from EEPROM");
+}
+// ----------------------- EEPROM Functions -----------------------
+void validateOrResetSettings()
+{
+  if (morningStartHour > 23)
+    morningStartHour = 6;
+  if (nightReturnHour > 23)
+    nightReturnHour = 18;
+  if (stepInterval < 1 || stepInterval > 60)
+    stepInterval = 10;
+  if (motorStepTime < 100 || motorStepTime > 10000)
+    motorStepTime = 1000;
+}
+
 // ----------------------- Configuration -----------------------
 const char *ssid = "solar_track";
 const char *password = "admin70503";
@@ -14,11 +60,11 @@ const int RELAY_WEST = 14;
 const int SENSOR_EAST = 22;
 const int SENSOR_WEST = 23;
 
-bool autoMode = true;
-int morningStartHour = 7;
-int nightReturnHour = 18;
-int stepInterval = 30;
-int motorStepTime = 1000; // متغير يمكن تحديثه أثناء التشغيل
+// bool autoMode = true;
+// int morningStartHour = 7;
+// int nightReturnHour = 18;
+// int stepInterval = 30;
+// int motorStepTime = 1000; // متغير يمكن تحديثه أثناء التشغيل
 
 bool isMovingEast = false;
 bool isMovingWest = false;
@@ -225,7 +271,10 @@ void handleSettings()
   // Redirect back to the main page after successful update
   server.sendHeader("Location", "/?success=1", true);
   server.send(302, "text/plain", "Redirecting...");
+  saveSettingsToEEPROM();
+  Serial.println("Settings updated and saved to EEPROM.");
 }
+
 //-------------------handleSetTime()---------------
 void handleSetTime()
 {
@@ -244,6 +293,10 @@ void setup()
 {
   Serial.begin(115200);
 
+  EEPROM.begin(EEPROM_SIZE);
+  loadSettingsFromEEPROM();
+  validateOrResetSettings();
+
   pinMode(RELAY_EAST, OUTPUT);
   pinMode(RELAY_WEST, OUTPUT);
   pinMode(SENSOR_EAST, INPUT_PULLDOWN); // NO: استخدم PULLDOWN
@@ -261,7 +314,7 @@ void setup()
   server.on("/unlock", HTTP_POST, handleUnlock);
   server.begin();
 }
-
+//-----------------------------loop ----------
 void loop()
 {
   server.handleClient(); // معالجة الطلبات دائمًا
